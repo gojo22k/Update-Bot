@@ -2,4 +2,3 @@ pyrogram
 tgcrypto
 requests
 python-telegram-bot
-http.server
