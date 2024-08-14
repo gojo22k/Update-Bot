@@ -1,6 +1,8 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+import re
 import requests
 import base64
 import json
@@ -10,6 +12,9 @@ OWNER_ID = 1740287480  # Directly use the owner ID
 
 # Initialize the bot with your API keys
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+user_modes = {}
+user_states = {}
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -263,12 +268,60 @@ async def git_test(client, message):
 
 
 @app.on_message(filters.command("combiner"))
-async def combiner(client, message):
-    if message.from_user.id != OWNER_ID:
-        await message.reply_text("Unauthorized access.")
-        return
-    await message.reply_text("Combiner command is a placeholder. Implement your logic here.")
+async def combiner_command(client, message):
+    user_id = message.from_user.id
+    user_modes[user_id] = 1  # Set default mode to 1
+    user_states[user_id] = "waiting_for_mode"  # Set state to wait for mode selection
 
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Mode 1", callback_data="mode_1")],
+        [InlineKeyboardButton("Mode 2", callback_data="mode_2")]
+    ])
+    await message.reply_text("Choose a mode:", reply_markup=keyboard)
+
+@app.on_callback_query(filters.regex(r"mode_(1|2)"))
+async def handle_mode_change(client, callback_query: CallbackQuery):
+    user_id = callback_query.from_user.id
+    mode = int(callback_query.data.split('_')[1])
+    user_modes[user_id] = mode
+    user_states[user_id] = "waiting_for_links"  # Update state to wait for links
+
+    # Update the button text to reflect the new mode
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"Mode {mode}", callback_data=f"mode_{mode}")],
+        [InlineKeyboardButton(f"Switch to Mode {2 if mode == 1 else 1}", callback_data=f"mode_{2 if mode == 1 else 1}")]
+    ])
+    await callback_query.message.edit_text("Mode changed! Please send links in the format:\n\n`<your_message>`", reply_markup=keyboard)
+    await callback_query.answer()
+
+@app.on_message(filters.text)
+async def handle_text_input(client, message):
+    user_id = message.from_user.id
+    
+    if user_id in user_states and user_states[user_id] == "waiting_for_links":
+        mode = user_modes[user_id]
+        input_message = message.text
+        links = []
+
+        if mode == 1:
+            regex = r"https?:\/\/[^\s]+"
+            links = re.findall(regex, input_message)
+        elif mode == 2:
+            regex = r"📥\s*(?:Dᴏᴡɴʟᴏᴀᴅ|Download)\s*:\s*(https?:\/\/[^\s]+)"
+            links = re.findall(regex, input_message)
+
+        extracted_links = "\n".join(links)
+        total_links = len(links)
+        
+        # Send extracted links to the user
+        await message.reply_text(f"{extracted_links}")
+        
+        # Send the total link count in a separate message
+        await message.reply_text(f"Total links: {total_links}")
+
+        # Reset state after processing
+        user_states[user_id] = "waiting_for_mode"
+        
 def split_message(message, chunk_size=4096):
     """Splits a message into chunks of a specified size."""
     return [message[i:i+chunk_size] for i in range(0, len(message), chunk_size)]
