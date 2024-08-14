@@ -23,20 +23,41 @@ def run_health_check_server():
     httpd = HTTPServer(server_address, HealthCheckHandler)
     httpd.serve_forever()
 
-def fetch_with_retry(url, headers=None, max_retries=3, delay=1):
+import time
+
+def fetch_with_retry(url, headers=None, max_retries=3, delay=1, max_rate_limit_retries=10):
     retries = 0
+    rate_limit_retries = 0
+    
     while retries < max_retries:
         try:
             response = requests.get(url, headers=headers)
+            
+            # Check if the response status code indicates rate limiting
+            if response.status_code == 429:
+                if rate_limit_retries < max_rate_limit_retries:
+                    rate_limit_retries += 1
+                    wait_time = response.headers.get('Retry-After', delay)
+                    print(f"Rate limit exceeded. Retrying in {wait_time} seconds...")
+                    time.sleep(int(wait_time))  # Wait according to Retry-After header or default delay
+                    continue
+                else:
+                    raise Exception(f"Rate limit exceeded and max retries reached for {url}")
+            
+            # Check for other response errors
             response.raise_for_status()
+            
             return response.json()
+        
         except requests.RequestException as e:
             print(f"Error fetching {url}: {e}")
             retries += 1
             if retries >= max_retries:
                 raise
             print(f"Retrying in {delay} seconds...")
+            time.sleep(delay)  # Wait before retrying
             delay *= 2  # Exponential backoff
+
 
 def fetch_folders(api_key, platform):
     url = PLATFORMS.get(platform)
