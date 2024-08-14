@@ -10,7 +10,7 @@ OWNER = 'gojo22k'
 REPO = 'Database'
 PATH = 'anime_data.txt'
 MESSAGE = 'Update anime_data.txt'
-GIT_TOKEN = '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'
+GIT_TOKEN = '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'
 
 # API keys for different platforms
 MIXDROP_API_KEY = 'gAR2UJ0JE2RKlhJJCqE'
