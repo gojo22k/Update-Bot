@@ -1,12 +1,27 @@
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
 from pyrogram import Client, filters
 import requests
 import base64
 import json
-import time
 from config import API_ID, API_HASH, BOT_TOKEN, OWNER, REPO, PATH, MESSAGE, GIT_TOKEN, PLATFORMS
+
+OWNER_ID = 1740287480  # Directly use the owner ID
 
 # Initialize the bot with your API keys
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b'OK')
+
+def run_health_check_server():
+    server_address = ('', 8000)
+    httpd = HTTPServer(server_address, HealthCheckHandler)
+    httpd.serve_forever()
 
 def fetch_with_retry(url, headers=None, max_retries=3, delay=1):
     retries = 0
@@ -21,7 +36,6 @@ def fetch_with_retry(url, headers=None, max_retries=3, delay=1):
             if retries >= max_retries:
                 raise
             print(f"Retrying in {delay} seconds...")
-            time.sleep(delay)
             delay *= 2  # Exponential backoff
 
 def fetch_folders(api_key, platform):
@@ -72,6 +86,25 @@ def update_github_file(token, owner, repo, path, message, content, sha):
     response = requests.put(url, headers=headers, data=json.dumps(data))
     response.raise_for_status()
     return response.json()
+
+def check_initial_conditions():
+    """Check if the bot has all required configurations before starting the update."""
+    errors = []
+
+    # Check GitHub token
+    if not GIT_TOKEN:
+        errors.append("GitHub token is missing.")
+
+    # Check repository details
+    if not OWNER or not REPO or not PATH:
+        errors.append("GitHub repository details are incomplete.")
+
+    # Check platform URLs
+    for platform, url in PLATFORMS.items():
+        if not url:
+            errors.append(f"API URL for {platform} is missing or invalid.")
+    
+    return errors
 
 async def fetch_anime_data(message):
     platforms = [
@@ -125,14 +158,27 @@ async def fetch_anime_data(message):
 
 @app.on_message(filters.command("update"))
 async def update_file(client, message):
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("Unauthorized access.")
+        return
+
+    # Run initial checks
+    errors = check_initial_conditions()
+    if errors:
+        error_message = "The following errors were detected:\n" + "\n".join(f"- {error}" for error in errors)
+        await message.reply_text(error_message)
+        return
+
     try:
         await fetch_anime_data(message)
     except Exception as e:
         await message.reply_text(f"Update failed: {str(e)}")
 
-
 @app.on_message(filters.command("check"))
 async def check_data(client, message):
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("Unauthorized access.")
+        return
     chat_id = message.chat.id
     try:
         get_file_response = requests.get(f'https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{PATH}')
@@ -156,13 +202,50 @@ async def check_data(client, message):
 
 @app.on_message(filters.command("start"))
 async def start(client, message):
-    await message.reply_text("Welcome to the Anime Data Bot! Use the following commands:\n"
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("Unauthorized access.")
+        return
+    await message.reply_text("Welcome to the Anime Data Bot! I am up and running. Use the following commands:\n"
                              "/update - Update the anime data\n"
                              "/check - Check the current anime data\n"
                              "/combiner - Placeholder for future functionality")
 
+@app.on_message(filters.command("git"))
+async def git_test(client, message):
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("Unauthorized access.")
+        return
+
+    test_url = "https://api.github.com/user"
+    headers = {
+        'Authorization': f'token {GIT_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+
+    try:
+        response = requests.get(test_url, headers=headers)
+        response.raise_for_status()
+        user_info = response.json()
+        response_message = f"Token is working! 🎉\n\nUser Info:\n\n" \
+                           f"Username: {user_info.get('login')}\n" \
+                           f"ID: {user_info.get('id')}\n" \
+                           f"Public Repos: {user_info.get('public_repos')}\n" \
+                           f"Followers: {user_info.get('followers')}\n" \
+                           f"Following: {user_info.get('following')}\n"
+        await message.reply_text(response_message)
+    except requests.exceptions.HTTPError as e:
+        error_message = f"GitHub API Error: {e.response.status_code} - {e.response.text}\n\n" \
+                        f"Token Used: {GIT_TOKEN}"
+        await message.reply_text(error_message)
+    except Exception as e:
+        await message.reply_text(f"An error occurred: {str(e)}\n\nToken Used: {GIT_TOKEN}")
+
+
 @app.on_message(filters.command("combiner"))
 async def combiner(client, message):
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("Unauthorized access.")
+        return
     await message.reply_text("Combiner command is a placeholder. Implement your logic here.")
 
 def split_message(message, chunk_size=4096):
@@ -170,5 +253,10 @@ def split_message(message, chunk_size=4096):
     return [message[i:i+chunk_size] for i in range(0, len(message), chunk_size)]
 
 if __name__ == "__main__":
+    # Start health check server in a separate thread
+    health_check_thread = threading.Thread(target=run_health_check_server)
+    health_check_thread.daemon = True
+    health_check_thread.start()
+    
+    # Start the bot
     app.run()
-
