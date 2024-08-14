@@ -1,5 +1,5 @@
 # config.py
-
+import os
 # Telegram API credentials
 API_ID = 25198711
 API_HASH = '2a99a1375e26295626c04b4606f72752'
@@ -10,7 +10,7 @@ OWNER = 'gojo22k'
 REPO = 'Database'
 PATH = 'anime_data.txt'
 MESSAGE = 'Update anime_data.txt'
-GIT_TOKEN = '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'
+GIT_TOKEN = os.getenv('GIT_TOKEN', '')
 
 # API keys for different platforms
 MIXDROP_API_KEY = 'gAR2UJ0JE2RKlhJJCqE'
