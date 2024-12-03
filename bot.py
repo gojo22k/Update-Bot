@@ -3,6 +3,7 @@ import threading
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 import re
+import html
 import requests
 import base64
 import json
@@ -72,16 +73,26 @@ def fetch_folders(api_key, platform):
     data = fetch_with_retry(url)
     
     if platform == 'MixDrop':
-        return data.get('result', {}).get('folders', [])
+        folders = data.get('result', {}).get('folders', [])
+    else:
+        # Handling Filemoon and other platforms
+        result = data.get('result', {})
+        if platform in ['Filemoon', 'VidHide', 'StreamWish', 'DoodStream']:
+            if 'folders' in result:
+                folders = result['folders']
+            elif isinstance(result, list):
+                folders = result
+            else:
+                folders = []
+
+    # Decode folder names to correct HTML entities
+    for folder in folders:
+        if 'name' in folder:
+            folder['name'] = html.unescape(folder['name'])
+        if 'title' in folder:  # For platforms that use 'title' instead of 'name'
+            folder['title'] = html.unescape(folder['title'])
     
-    # Handling Filemoon and other platforms
-    result = data.get('result', {})
-    if platform in ['Filemoon', 'VidHide', 'StreamWish', 'DoodStream']:
-        if 'folders' in result:
-            return result['folders']
-        elif isinstance(result, list):
-            return result
-    return []
+    return folders
 
 def fetch_anime_details_from_jikan(anime_name):
     url = f'https://api.jikan.moe/v4/anime?q={requests.utils.quote(anime_name)}&limit=1'
